@@ -1,10 +1,10 @@
 [
   {
-    "domain": "icp.accounts.personovate.com:81",
-    "redirect": "icp.accounts.personovate.com:81"
+    "domain": "YOUR_DOMAIN.COM",
+    "redirect": "YOUR_DOMAIN.COM"
   },
   {
-    "domain": "accounts.personovate.com:81",
-    "redirect": "accounts.personovate.com:81"
+    "domain": "YOUR_DOMAIN.COM",
+    "redirect": "YOUR_DOMAIN.COM"
   }
 ]
