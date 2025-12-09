@@ -1,6 +1,5 @@
 <?php
 // index.php – Server 1 Monitoring Dashboard
-// ─── CONFIG ────────────────────────────────────────────────────────────────
 $accessLog = '/var/log/nginx/access.log';
 $ddosLog = __DIR__ . '/ddos-monitor.log';
 $blockedIPsFile = __DIR__ . '/blocked-ips.json';
@@ -8,7 +7,6 @@ $notesFile = __DIR__ . '/notes.json';
 $timeWindow = 7200;
 $ddosThreshold = 86400;
 
-// Initialize files if they don't exist
 if (!file_exists($ddosLog)) {
   file_put_contents($ddosLog, '');
 }
@@ -19,7 +17,6 @@ if (!file_exists($notesFile)) {
   file_put_contents($notesFile, json_encode(new stdClass()));
 }
 
-// ─── HELPERS ──────────────────────────────────────────────────────────────
 function getTemp()
 {
   $zone = '/sys/class/thermal/thermal_zone0/temp';
@@ -104,14 +101,12 @@ function getAccessLogSummary()
 
 function getActiveSSH()
 {
-  // Get active SSH sessions using 'who' command
   exec("who | grep 'pts'", $out, $code);
   if ($code !== 0 || empty($out))
     return [];
   $sessions = [];
   function getIPCountry($ip)
   {
-    // Only lookup for public IPs
     if ($ip === 'N/A' || preg_match('/^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|127\.|::1)/', $ip)) {
       return '';
     }
@@ -129,13 +124,10 @@ function getActiveSSH()
     return $country;
   }
   foreach ($out as $line) {
-    // Format: user pts/X date time ip ...
     $parts = preg_split('/\s+/', $line);
-    // who output: user pts/X date time ip ...
     $user = isset($parts[0]) ? $parts[0] : '';
     $tty = isset($parts[1]) ? $parts[1] : '';
     $date = isset($parts[2]) ? $parts[2] : '';
-    // Find first time column (H:MM or HH:MM)
     $time = '';
     $timeIndex = null;
     for ($i = 3; $i < count($parts); $i++) {
@@ -145,7 +137,6 @@ function getActiveSSH()
         break;
       }
     }
-    // Find IP in parentheses
     $ip = 'N/A';
     foreach ($parts as $p) {
       if (preg_match('/\((\d+\.\d+\.\d+\.\d+)\)/', $p, $m)) {
@@ -160,17 +151,13 @@ function getActiveSSH()
     $country = getIPCountry($ip);
     $countryStr = $country ? " [{$country}]" : '';
     if ($user && $tty && $time) {
-      // Calculate session duration robustly. 'who' often prints: Month Day HH:MM (e.g. Oct  7 13:03)
       $loginTimestamp = false;
-      // Case 1: date token is YYYY-MM-DD
       if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
         $loginTimestamp = strtotime($date . ' ' . $time);
       } else {
-        // Try to extract Month and Day from tokens around the time token
         $month = null;
         $day = null;
         if ($timeIndex !== null) {
-          // Expect pattern: ... Month Day Time ...
           if (isset($parts[$timeIndex - 1]) && preg_match('/^\d{1,2}$/', $parts[$timeIndex - 1])) {
             $day = $parts[$timeIndex - 1];
             if (isset($parts[$timeIndex - 2]) && preg_match('/^[A-Za-z]{3}$/', $parts[$timeIndex - 2])) {
@@ -184,12 +171,10 @@ function getActiveSSH()
         if ($month && $day) {
           $year = date('Y');
           $loginTimestamp = strtotime(sprintf('%s %s %s', $month, $day, $year) . ' ' . $time);
-          // If the computed login time is in the future (e.g., cross-year), assume previous year
           if ($loginTimestamp !== false && $loginTimestamp > time() + 60) {
             $loginTimestamp = strtotime(sprintf('%s %s %s', $month, $day, $year - 1) . ' ' . $time);
           }
         } else {
-          // Fallback: try strtotime on whatever date token we have
           $loginTimestamp = @strtotime($date . ' ' . $time);
         }
       }
@@ -245,8 +230,6 @@ function blockIP($ip)
   if (!in_array($ip, $blocked)) {
     $blocked[] = $ip;
     file_put_contents($blockedIPsFile, json_encode($blocked));
-
-    // Implement actual blocking (example for iptables)
     exec("sudo iptables -A INPUT -s $ip -j DROP 2>/dev/null", $output, $return);
     echo $ip[0] . "" . $output[1] . "";
     return $return === 0;
@@ -260,15 +243,12 @@ function unblockIP($ip)
   if (($key = array_search($ip, $blocked)) !== false) {
     unset($blocked[$key]);
     file_put_contents($blockedIPsFile, json_encode(array_values($blocked)));
-
-    // Implement actual unblocking (example for iptables)
     exec("sudo iptables -D INPUT -s $ip -j DROP 2>/dev/null", $output, $return);
     return $return === 0;
   }
   return true;
 }
 
-// ─── AJAX ENDPOINTS ─────────────────────────────────────────────────────────
 if (isset($_GET['action'])) {
   header('Content-Type:application/json');
   $now = time();
@@ -276,7 +256,6 @@ if (isset($_GET['action'])) {
 
   switch ($_GET['action']) {
 
-    // Health
     case 'health':
       $load = floatval(explode(' ', file_get_contents('/proc/loadavg'))[0]);
       preg_match('/Mem:\s+(\d+)\s+(\d+)/', shell_exec('free -m'), $m);
@@ -295,27 +274,23 @@ if (isset($_GET['action'])) {
       ]);
       break;
 
-    // DDoS Detection
     case 'ping':
       $lines = file_exists($accessLog) ? file($accessLog) : [];
       $byip = [];
       $forbidden = [];
-      $lastVisit = []; // Add this array to track last visit times
+      $lastVisit = [];
 
       foreach ($lines as $l) {
-        // Count all requests per IP
         if (preg_match('/(\d+\.\d+\.\d+\.\d+).*?\[(.*?)\]/', $l, $m)) {
           $ip = $m[1];
           $ts = strtotime($m[2]);
           if (($now - $ts) <= $timeWindow) {
             $byip[$ip] = ($byip[$ip] ?? 0) + 1;
-            // Update last visit time if this is more recent
             if (!isset($lastVisit[$ip]) || $ts > $lastVisit[$ip]) {
               $lastVisit[$ip] = $ts;
             }
           }
         }
-        // Count 403 requests per IP
         if (preg_match('/(\d+\.\d+\.\d+\.\d+).*?\[(.*?)\].*?"\s403\s/', $l, $m403)) {
           $ip403 = $m403[1];
           $ts403 = strtotime($m403[2]);
@@ -327,8 +302,7 @@ if (isset($_GET['action'])) {
       arsort($byip);
       arsort($forbidden);
       $top = array_slice($byip, 0, 10, true);
-      // Return all IPs that visited 403 pages within the time window (do not limit to top 10)
-      $top403 = $forbidden; // already arsorted above
+      $top403 = $forbidden;
       unset($top[$viewerIP]);
       unset($top403[$viewerIP]);
       $alerts = [];
@@ -339,11 +313,9 @@ if (isset($_GET['action'])) {
           file_put_contents($ddosLog, "$t $ip\n", FILE_APPEND);
         }
       }
-      // Include lastVisit in the JSON response
       echo json_encode(['top' => $top, 'alerts' => $alerts, 'top403' => $top403, 'lastVisit' => $lastVisit]);
       break;
 
-    // Traffic
     case 'traffic':
       $lines = file_exists($accessLog) ? file($accessLog) : [];
       $req = 0;
@@ -374,8 +346,6 @@ if (isset($_GET['action'])) {
         'byip' => $byip
       ]);
       break;
-
-    // Advanced
     case 'advanced':
       echo json_encode([
         'sv' => getServices(),
@@ -385,8 +355,6 @@ if (isset($_GET['action'])) {
         'ssh' => getActiveSSH()
       ]);
       break;
-
-    // IP Management
     case 'get_blocked_ips':
       require_once __DIR__ . '/ip_rules_helper.php';
       echo json_encode(['blocked' => getBlockedIPsFromConf()]);
@@ -401,7 +369,6 @@ if (isset($_GET['action'])) {
         $ip = $_GET['ip'];
         $note = isset($_GET['note']) ? $_GET['note'] : null;
         $notes = getNotes();
-        // allow null to clear
         $notes[$ip] = $note === null ? null : (string) $note;
         saveNotes($notes);
         echo json_encode(['success' => true]);
@@ -599,15 +566,11 @@ if (isset($_GET['action'])) {
           Monitoring</button></li>
       <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tabIP">IP Management</button>
       </li>
-      <!-- <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tabTraffic">URL Redirect
-          Traffic</button></li> -->
       <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tabAdv">Advanced</button>
       </li>
     </ul>
 
     <div class="tab-content">
-
-      <!-- Health -->
       <div class="tab-pane fade show active" id="tabHealth">
         <div class="row gy-3">
           <?php
@@ -644,7 +607,6 @@ if (isset($_GET['action'])) {
         </div>
       </div>
 
-      <!-- DDoS -->
       <div class="tab-pane fade" id="tabDDoS">
         <div class="d-flex justify-content-between mb-3">
           <h5>Top 10 IPs (last 5 Days)</h5>
@@ -655,7 +617,6 @@ if (isset($_GET['action'])) {
           </div>
         </div>
 
-        <!-- DDoS Chart -->
         <canvas id="ddosChart" height="100" class="mb-3"></canvas>
 
         <table class="table">
@@ -697,8 +658,6 @@ if (isset($_GET['action'])) {
           </tbody>
         </table>
       </div>
-
-      <!-- Traffic -->
       <div class="tab-pane fade" id="tabTraffic">
         <div class="d-flex justify-content-between mb-3">
           <span><strong id="reqCount">–</strong> reqs / <?php echo $timeWindow ?>s</span>
@@ -721,8 +680,6 @@ if (isset($_GET['action'])) {
           </tbody>
         </table>
       </div>
-
-      <!-- IP Management -->
       <div class="tab-pane fade" id="tabIP">
         <div class="row">
           <div class="col-md-6">
@@ -758,7 +715,6 @@ if (isset($_GET['action'])) {
         </table>
       </div>
 
-      <!-- Advanced -->
       <div class="tab-pane fade" id="tabAdv">
         <h5>Service Status</h5>
         <ul id="svcList" class="list-group mb-3">
@@ -776,17 +732,13 @@ if (isset($_GET['action'])) {
 
     </div>
   </div>
-
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
   <script>
     (async () => {
       const ddosTh = <?php echo $ddosThreshold ?>;
       let ddosChart, trafficChart, healthChart;
       let blockedIPs = [];
-
-      // Store last DDoS chart data for smooth updates
       const ddosChartConfig = {
         type: 'bar',
         data: {
@@ -828,7 +780,6 @@ if (isset($_GET['action'])) {
           }
         }
       };
-      // Store last 20 health data points
       const healthData = {
         labels: [],
         cpu: [],
@@ -845,15 +796,10 @@ if (isset($_GET['action'])) {
 
       async function refreshHealth() {
         const d = await ajax('health');
-
-        // Calculate percentages for each metric
         const cpuPercent = Math.min(100, Math.round(parseFloat(d.load)));
         const ramPercent = d.mem.total ? Math.round((d.mem.used / d.mem.total) * 100) : 0;
         const diskPercent = d.disk.total ? Math.round((d.disk.used / d.disk.total) * 100) : 0;
         const swapPercent = d.swap.total ? Math.round((d.swap.used / d.swap.total) * 100) : 0;
-        // Uptime, NetThr, Temp don't have a percent, so just show 100% bar
-
-        // Set progress bars and percent text
         document.getElementById('loader-fill-cpuLoad').style.width = cpuPercent + '%';
         document.getElementById('loader-percent-cpuLoad').textContent = cpuPercent + '%';
         document.getElementById('loader-fill-ramUsage').style.width = ramPercent + '%';
@@ -868,7 +814,6 @@ if (isset($_GET['action'])) {
         document.getElementById('loader-percent-netThr').textContent = '';
         document.getElementById('loader-fill-cpuTemp').style.width = '30%';
         document.getElementById('loader-percent-cpuTemp').textContent = '';
-
         document.getElementById('cpuLoad').textContent = d.load + '%';
         document.getElementById('ramUsage').textContent = `${d.mem.used}/${d.mem.total} MB`;
         document.getElementById('diskUsage').textContent = `${d.disk.used}/${d.disk.total} GB`;
@@ -876,8 +821,6 @@ if (isset($_GET['action'])) {
         document.getElementById('uptime').textContent = d.uptime;
         document.getElementById('netThr').textContent = `${d.netThr.rx}/${d.netThr.tx}`;
         document.getElementById('cpuTemp').textContent = d.temp + ' °C';
-
-        // Update health chart data
         const nowLabel = new Date().toLocaleTimeString();
         if (healthData.labels.length >= 20) {
           healthData.labels.shift();
@@ -891,8 +834,6 @@ if (isset($_GET['action'])) {
         healthData.ram.push(d.mem.used);
         healthData.disk.push(d.disk.used);
         healthData.temp.push(d.temp);
-
-        // Draw chart
         if (healthChart) healthChart.destroy();
         healthChart = new Chart(
           document.getElementById('healthChart'),
@@ -986,12 +927,9 @@ if (isset($_GET['action'])) {
           }).join('');
         }
         document.getElementById('blockedIPs').innerHTML = rows;
-        // apply current search filter if any
         const si = document.getElementById('blockedSearch');
         if (si && si.value) filterBlockedRows(si.value);
       }
-
-      // Real-time search for blocked IPs
       function filterBlockedRows(q) {
         q = (q || '').toLowerCase().trim();
         const rows = document.querySelectorAll('#blockedIPs tr');
@@ -1072,27 +1010,19 @@ if (isset($_GET['action'])) {
 
       async function refreshDDoS() {
         const d = await ajax('ping');
-        
-        // Calculate total unique IPs (without duplicates)
         const totalUniqueIPs = Object.keys(d.top || {}).length;
         const total403IPs = Object.keys(d.top403 || {}).length;
-        
-        // Display total counts
         document.getElementById('totalUniqueIPs').textContent = totalUniqueIPs;
         document.getElementById('total403IPs').textContent = total403IPs;
-        
-        // table
         let rows;
         if (!d.top || Object.keys(d.top).length === 0) {
           rows = '<tr><td colspan="5">No IPs detected</td></tr>';
         } else {
           rows = Object.entries(d.top).map(([ip, c]) => {
             const isBlocked = blockedIPs.includes(ip);
-            // Format last visit time
             const lastVisitTime = d.lastVisit && d.lastVisit[ip] ?
               new Date(d.lastVisit[ip] * 1000).toLocaleString() :
               'N/A';
-
             return `
         <tr class="${c > ddosTh ? 'table-danger' : ''}">
           <td>
@@ -1113,8 +1043,6 @@ if (isset($_GET['action'])) {
         }
         document.getElementById('ddosTable').innerHTML = rows;
         document.getElementById('ddosAlerts').textContent = d.alerts.length ? d.alerts.join("\n") : 'None';
-
-        // 403 table
         let rows403;
         if (!d.top403 || Object.keys(d.top403).length === 0) {
           rows403 = '<tr><td colspan="3">No 403 detected</td></tr>';
@@ -1138,8 +1066,6 @@ if (isset($_GET['action'])) {
           }).join('');
         }
         document.getElementById('ddos403Table').innerHTML = rows403;
-
-        // chart (reuse instance for performance)
         const labels = Object.keys(d.top), data = Object.values(d.top);
         const bgColors = labels.map(ip => d.top[ip] > ddosTh ? 'rgba(255,99,132,0.6)' : 'rgba(54,162,235,0.6)');
         const borderColors = labels.map(ip => d.top[ip] > ddosTh ? 'rgba(255,99,132,1)' : 'rgba(54,162,235,1)');
@@ -1153,7 +1079,6 @@ if (isset($_GET['action'])) {
           ddosChart.update();
         }
       }
-
       async function refreshTraffic() {
         const d = await ajax('traffic');
         document.getElementById('reqCount').textContent = d.requests;
@@ -1168,7 +1093,7 @@ if (isset($_GET['action'])) {
           return `
       <tr class="${c > ddosTh ? 'table-danger' : ''}">
         <td>${ip}</td><td>${c}</td>
-        <td>${c > ddosTh ? '⚠️' : '✅'}</td>
+        <td>${c > ddosTh ? '!' : 'O'}</td>
         <td>
           ${isBlocked ?
               `<button class="btn btn-sm btn-success" onclick="unblockIP('${ip}')">Unblock</button>` :
@@ -1197,8 +1122,6 @@ if (isset($_GET['action'])) {
         document.getElementById('accessList').textContent = a.al.join("");
         document.getElementById('sshList').textContent = a.ssh.length ? a.ssh.join("\n") : 'No active SSH sessions';
       }
-
-      // IP Management functions
       window.blockIP = async function (ip) {
         const result = await ajax('block_ip', { ip });
         if (result.success) {
@@ -1229,8 +1152,6 @@ if (isset($_GET['action'])) {
           alert('Please enter an IP address');
           return;
         }
-
-        // Simple IP validation
         const ipPattern = /^(\d{1,3}\.){3}\d{1,3}$/;
         if (!ipPattern.test(ip)) {
           alert('Please enter a valid IP address');
@@ -1240,8 +1161,6 @@ if (isset($_GET['action'])) {
         blockIP(ip);
         document.getElementById('ipToBlock').value = '';
       };
-
-      // Restore scroll position on load
       document.addEventListener('DOMContentLoaded', function () {
         if (window.localStorage && localStorage.getItem('scrollY')) {
           var y = parseInt(localStorage.getItem('scrollY'), 10) || 0;
@@ -1251,22 +1170,16 @@ if (isset($_GET['action'])) {
           }, 100);
         }
       });
-
-      // Initial load
       refreshHealth();
       refreshBlockedIPs();
       refreshDDoS();
       refreshTraffic();
       refreshAdvanced();
-
-      // Save scroll position before reload
       window.addEventListener('beforeunload', function () {
         if (window.localStorage) {
           localStorage.setItem('scrollY', window.scrollY);
         }
       });
-
-      // Set up intervals
       setInterval(refreshHealth, 5000);
       setInterval(refreshBlockedIPs, 10000);
       setInterval(refreshDDoS, 5000);
@@ -1275,5 +1188,4 @@ if (isset($_GET['action'])) {
     })();
   </script>
 </body>
-
 </html>
