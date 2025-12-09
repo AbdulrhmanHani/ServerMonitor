@@ -1,5 +1,5 @@
 <?php
-// index.php – Abdulrahman Server 1 Monitoring Dashboard
+// index.php – Server 1 Monitoring Dashboard
 // ─── CONFIG ────────────────────────────────────────────────────────────────
 $accessLog = '/var/log/nginx/access.log';
 $ddosLog = __DIR__ . '/ddos-monitor.log';
@@ -453,11 +453,11 @@ if (isset($_GET['action'])) {
 
 <head>
   <meta charset="UTF-8">
-  <title>Abdulrahman Server 1 Monitoring Dashboard</title>
+  <title>Server 1 Monitoring Dashboard</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="shortcut icon"
-    href="https://s3.eu-north-1.amazonaws.com/abdulrahman-me.com/Logo.png">
+    href="LOGO.PNG">
   <script src="https://kit.fontawesome.com/a2e0d1f4f0.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
@@ -591,7 +591,7 @@ if (isset($_GET['action'])) {
 
 <body>
   <div class="container my-4">
-    <h1 class="mb-4" style="color: #444;"><i class="fas fa-tachometer-alt"></i> Abdulrahman Server 1 Monitoring Dashboard</h1>
+    <h1 class="mb-4" style="color: #444;"><i class="fas fa-tachometer-alt"></i> Server 1 Monitoring Dashboard</h1>
     <ul class="nav nav-pills mb-3">
       <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill"
           data-bs-target="#tabHealth">Health</button></li>
